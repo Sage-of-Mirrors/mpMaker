@@ -363,8 +363,8 @@ int32_t CMemoryStream::readInt32(){
 
 std::string CMemoryStream::readString(size_t len){
 	std::string str('\0', len);
-	strncpy(&str[0], OffsetPointer<char>(mBuffer, mPosition), len);
-	mPosition += len;
+	// strncpy(&str[0], OffsetPointer<char>(mBuffer, mPosition), len);
+	//mPosition += len;
 	return str;
 }
 

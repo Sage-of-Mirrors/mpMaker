@@ -1,8 +1,14 @@
 #include "collisionfile.h"
 
 CollisionFile::CollisionFile(std::experimental::filesystem::path file_name) {
-	std::string ext = file_name.extension().generic_string();
 	bStream::CFileStream reader(file_name.generic_string(), bStream::Big, bStream::In);
+
+	if (!reader.getStream().is_open()) {
+		std::cout << "Could not open file " << file_name << "!" << std::endl;
+		return;
+	}
+
+	std::string ext = file_name.extension().generic_string();
 
 	if (ext == ".mp") {
 		LoadFromMp(&reader);
@@ -28,9 +34,9 @@ void CollisionFile::LoadFromMp(bStream::CFileStream * reader) {
 	int griddate2_offset = reader->readUInt32();
 	int unk1_offset = reader->readUInt32();
 
-	int vert_count = (normalized_offset - vertex_offset) / 12;
-	int normal_count = (tridata_offset - normalized_offset) / 12;
-	int tri_count = (groupdata_offset - tridata_offset) / 24;
+	int vert_count = (normalized_offset - vertex_offset) / 12; // Each vertex is three floats, which is 12 bytes total
+	int normal_count = (tridata_offset - normalized_offset) / 12; // See above
+	int tri_count = (groupdata_offset - tridata_offset) / 24; // Each triangle is 24 bytes long
 
 	CArrayT<glm::vec3 *> vertices;
 	CArrayT<glm::vec3 *> normals;
@@ -51,10 +57,112 @@ void CollisionFile::LoadFromMp(bStream::CFileStream * reader) {
 }
 
 void CollisionFile::LoadFromObj(bStream::CFileStream * reader) {
-	std::string test = reader->readLine();
-	CArrayT<std::string> test_2 = Util::Split(test, " ");
-	
-	glm::vec3 test_3(strtof(test_2[1].c_str(), nullptr), strtof(test_2[2].c_str(), nullptr), strtof(test_2[3].c_str(), nullptr));
+	CArrayT<glm::vec3 *> vertices = ReadVertsFromObj(reader);
+	ReadFacesFromObj(reader, vertices);
+}
+
+CArrayT<glm::vec3 *> CollisionFile::ReadVertsFromObj(bStream::CFileStream * reader) {
+	CArrayT<glm::vec3 *> verts;
+
+	// We're going to scan the entire file for lines containing vertices.
+	// That is, lines beginning with the token 'v'.
+
+	while (!reader->getStream().eof()) {
+		std::string line = reader->readLine();
+		CArrayT<std::string> split_line = Util::Split(line, " ");
+
+		if (split_line.size() > 0 && split_line[0] == "v") {
+			glm::vec3 * new_vert = new glm::vec3(std::stof(split_line[1]), std::stof(split_line[2]), std::stof(split_line[3]));
+			verts.append(new_vert);
+		}
+	}
+
+	// Return the reader to the beginning of the file
+	reader->seek(0);
+
+	return verts;
+}
+
+void CollisionFile::ReadFacesFromObj(bStream::CFileStream * reader, CArrayT<glm::vec3 *> vertices) {
+	// Just like reading vertices, we're going to scan the entire file for faces.
+	// We're looking for lines starting with the token 'f' now.
+
+	while (!reader->getStream().eof()) {
+		std::string line = reader->readLine();
+		CArrayT<std::string> split_line = Util::Split(line, " ");
+
+		if (split_line.size() > 0 && split_line[0] == "f") {
+		}
+	}
+
+	// Return the reader to the beginning of the file
+	reader->seek(0);
+}
+
+void CollisionFile::Write(std::experimental::filesystem::path file_name, FileType output_type) {
+	if (mFaces.size() == 0) {
+		std::cout << "Unable to write file - no data is loaded!" << std::endl;
+		return;
+	}
+
+	bStream::CFileStream writer(file_name.generic_string(), bStream::Big, bStream::Out);
+
+	if (!writer.getStream().is_open()) {
+		std::cout << "Could not open file " << file_name << "!" << std::endl;
+		return;
+	}
+
+	if (output_type == FileType::mp) {
+		WriteToMp(&writer);
+	}
+	else {
+		WriteToObj(&writer);
+	}
+}
+
+void CollisionFile::WriteToObj(bStream::CFileStream * writer) {
+	CArrayT<glm::vec3 *> vertices;
+	CArrayT<std::string> faces;
+
+	for (int i = 0; i < mFaces.size(); i++) {
+		CArrayT<glm::vec3 *> face_verts = mFaces[i]->GetVertices();
+		int face_indices[3] { 0,0,0 };
+
+		for (int j = 0; j < 3; j++) {
+			size_t index = 0;
+
+			bool already_present = vertices.contains(face_verts[j], &index);
+
+			if (!already_present) {
+				face_indices[j] = vertices.size() + 1;
+				vertices.append(face_verts[j]);
+			}
+			else {
+				face_indices[j] = index + 1;
+			}
+		}
+
+		char buff[100];
+		snprintf(buff, sizeof(buff), "f %d %d %d\n", face_indices[0], face_indices[1], face_indices[2]);
+		std::string buffAsStdStr = buff;
+		faces.append(buff);
+	}
+
+	for (int i = 0; i < vertices.size(); i++) {
+		char buff[100];
+		snprintf(buff, sizeof(buff), "v %f %f %f\n", vertices[i]->x, vertices[i]->y, vertices[i]->z);
+		std::string buffAsStdStr = buff;
+
+		writer->writeString(buffAsStdStr);
+	}
+
+	for (int i = 0; i < faces.size(); i++) {
+		writer->writeString(faces[i]);
+	}
+}
+
+void CollisionFile::WriteToMp(bStream::CFileStream * writer) {
+
 }
 
 void CollisionFile::Debug_ExportObjWithUnk2Colors(std::experimental::filesystem::path file_name) {
